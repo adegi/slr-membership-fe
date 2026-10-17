@@ -1,5 +1,6 @@
 'use server';
 
+import { type BenyStatusValue, getBenyStatus } from '@/lib/api/resources/beny';
 import { getBillingStatus } from '@/lib/api/resources/billing';
 import { getMyMembership } from '@/lib/api/resources/memberships';
 import { getAccessToken } from '@/lib/api/server';
@@ -13,6 +14,11 @@ export interface ActivationState {
     requiresPayment?: boolean;
     tierLabel?: string;
     nextRenewalAt?: string | null;
+}
+
+export interface BenyActivationState {
+    authed: boolean;
+    benyStatus?: BenyStatusValue;
 }
 
 export async function checkActivation(): Promise<ActivationState> {
@@ -41,3 +47,16 @@ export async function checkActivation(): Promise<ActivationState> {
         return { authed: true, active: false };
     }
 }
+
+export async function checkBenyActivation(): Promise<BenyActivationState> {
+    const token = await getAccessToken();
+    if (!token) return { authed: false };
+
+    try {
+        const res = await getBenyStatus(token);
+        return { authed: true, benyStatus: res.beny_status };
+    } catch {
+        return { authed: true, benyStatus: 'pending_activation' };
+    }
+}
+

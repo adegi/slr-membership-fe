@@ -102,11 +102,22 @@ export function BenySection({
         e.preventDefault();
         if (!isAuPhone(form.phone)) {
             setPhoneError(AU_PHONE_MESSAGE);
-
             return;
         }
         setPhoneError(null);
-        setConfirmOpen(true);
+        // Langsung redirect ke Stripe tanpa dialog konfirmasi
+        handleConfirmSubscribe();
+    };
+
+    const handleCompleteSetup = () => {
+        startTransition(async () => {
+            const res = await subscribeBenyAction({ ...form, phone: toAuE164(form.phone) });
+            if (res.ok && res.checkoutUrl) {
+                window.location.href = res.checkoutUrl;
+            } else {
+                toast.error(res.ok ? 'Failed to create checkout session' : (res.code ? `${res.message} (${res.code})` : res.message));
+            }
+        });
     };
 
     const handleConfirmSubscribe = () => {
@@ -121,6 +132,13 @@ export function BenySection({
                     email: userProfile?.email ?? '',
                     phone: userProfile?.phone ?? ''
                 });
+                
+                // Redirect to Stripe checkout to setup payment method
+                if (res.checkoutUrl) {
+                    window.location.href = res.checkoutUrl;
+                    return;
+                }
+                
                 toast.success('BENY requested — pending admin activation.');
             } else {
                 toast.error(res.code ? `${res.message} (${res.code})` : res.message);
@@ -135,6 +153,8 @@ export function BenySection({
             if (res.ok) {
                 setStatus(res.status);
                 toast.success(res.message);
+                // Refresh halaman untuk update cancelledAt dan expiresAt
+                window.location.reload();
             } else {
                 if (process.env.NODE_ENV === 'development') {
                     console.error('[Cancel BENY Error]', {
@@ -215,11 +235,32 @@ export function BenySection({
                 ) : null}
 
                 {status === 'pending_payment' ? (
-                    <span className='inline-flex items-start gap-2 text-sm text-white/90'>
-                        <Clock className='text-slr-gold-label mt-0.5 size-4 shrink-0' />
-                        BENY request received — we&apos;re processing your request. Your access will be confirmed by
-                        email.
-                    </span>
+                    <div className='flex flex-wrap items-center justify-between gap-3'>
+                        <span className='inline-flex items-start gap-2 text-sm text-white/90'>
+                            <Clock className='text-slr-gold-label mt-0.5 size-4 shrink-0' />
+                            BENY setup incomplete. Please complete payment setup or cancel to try again later.
+                        </span>
+                        <div className='flex items-center gap-2'>
+                            <button
+                                type='button'
+                                onClick={handleCompleteSetup}
+                                disabled={isPending}
+                                className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-white/15 px-4 py-1.5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-60'
+                            >
+                                {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
+                                Complete Setup
+                            </button>
+                            <button
+                                type='button'
+                                onClick={() => setConfirmCancelOpen(true)}
+                                disabled={isPending}
+                                className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-red-500/30 px-4 py-1.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60'
+                            >
+                                {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
                 ) : null}
 
                 {isBenyWindingDown(status) ? (
@@ -315,7 +356,7 @@ export function BenySection({
                 open={confirmOpen}
                 onOpenChange={setConfirmOpen}
                 title='Confirm BENY Subscription'
-                confirmText={isPending ? 'Processing...' : 'Confirm & Charge Card'}
+                confirmText={isPending ? 'Processing...' : 'Confirm & Setup Payment'}
                 cancelBtnText='Cancel'
                 isLoading={isPending}
                 handleConfirm={handleConfirmSubscribe}
@@ -331,10 +372,10 @@ export function BenySection({
                         <div className='flex items-start gap-3 rounded-xl border border-[#D4AF3759] bg-[#D4AF371A]/15 p-3.5 text-left'>
                             <CreditCard className='text-slr-gold-label mt-0.5 size-4 shrink-0' />
                             <div>
-                                <p className='text-xs font-semibold text-[#FFDC75]'>Direct Card Charge</p>
+                                <p className='text-xs font-semibold text-[#FFDC75]'>Setup Payment Method</p>
                                 <p className='mt-0.5 text-xs leading-relaxed text-white/80'>
-                                    This payment will be charged directly to the credit/debit card on your account.
-                                    Access will be activated by an SLR Admin within 1 business day.
+                                    You&apos;ll be redirected to Stripe to securely setup your payment method.
+                                    Your card will only be charged after admin activates your BENY access.
                                 </p>
                             </div>
                         </div>
@@ -345,13 +386,17 @@ export function BenySection({
             <ConfirmDialog
                 open={confirmCancelOpen}
                 onOpenChange={setConfirmCancelOpen}
-                title='Cancel BENY Add-on?'
+                title={status === 'pending_payment' ? 'Cancel BENY Setup?' : 'Cancel BENY Add-on?'}
                 destructive
-                confirmText={isPending ? 'Cancelling...' : 'Yes, cancel addon'}
-                cancelBtnText='Keep BENY addon'
+                confirmText={isPending ? 'Cancelling...' : 'Yes, cancel'}
+                cancelBtnText={status === 'pending_payment' ? 'Keep trying' : 'Keep BENY addon'}
                 isLoading={isPending}
                 handleConfirm={handleConfirmCancel}
-                desc={`Are you sure you want to cancel your BENY savings add-on? Your $${BENY_MONTHLY_PRICE.toFixed(2)} AUD monthly charge will stop at the end of the paid period.`}
+                desc={
+                    status === 'pending_payment'
+                        ? `Are you sure you want to cancel BENY setup? You can always add BENY again later.`
+                        : `Are you sure you want to cancel your BENY savings add-on? Your $${BENY_MONTHLY_PRICE.toFixed(2)} AUD monthly charge will stop at the end of the paid period.`
+                }
             />
         </section>
     );
