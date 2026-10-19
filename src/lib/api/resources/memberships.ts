@@ -91,6 +91,54 @@ export const scheduleMembershipChange = (targetSubTierId: MemberSubTierId, token
 export const cancelScheduledChange = (token: string) =>
     apiFetch<null>(API.memberships.upgrade, { method: 'DELETE', token });
 
+export interface CompletePaymentStateMembership {
+    sub_tier_id: string;
+    billing_status: string;
+    pending_checkout_session_id: string | null;
+    pending_promo_code: string | null;
+    pending_stripe_promotion_code_id: string | null;
+    pending_stripe_coupon_id: string | null;
+}
+
+export interface CompletePaymentStateBeny {
+    subscription_id: string;
+    name: string;
+    email: string;
+    phone: string;
+    status: string;
+    promo_code: string | null;
+}
+
+export interface CompletePaymentStateSpin {
+    spin_result_id: string;
+    discount_cents: number;
+    expires_at: string | null;
+}
+
+export interface CompletePaymentStatePromo {
+    code: string;
+    valid: boolean;
+    target: 'membership' | 'beny' | null;
+    amount_off_cents: number | null;
+    percent_off: number | null;
+    reason: string | null;
+}
+
+export interface CompletePaymentStateResponse {
+    membership: CompletePaymentStateMembership;
+    beny: CompletePaymentStateBeny | null;
+    spin: CompletePaymentStateSpin | null;
+    promo: CompletePaymentStatePromo | null;
+}
+
+export type ResetCompletePaymentAction = 'change-tier' | 'change-beny' | 'change-promo';
+
+export const getCompletePaymentState = (token: string) =>
+    apiFetch<CompletePaymentStateResponse>(API.memberships.completePaymentState, { token, cache: 'no-store' });
+
+export const resetCompletePayment = (token: string, action: ResetCompletePaymentAction) =>
+    apiFetch<{ success: true }>(API.memberships.resetCompletePayment, { method: 'POST', token, body: { action } });
+
 interface RawSubTierStat {
     sub_tier_id: string;
     count: number;

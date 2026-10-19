@@ -3,6 +3,7 @@
 import { isBenyEligibleSubTier } from '@/constant/tiers';
 import { getMemberProfile } from '@/data/profile';
 import { type BenyStatusValue, type BenySubscribePayload, cancelBeny, subscribeBeny } from '@/lib/api/resources/beny';
+import { type CouponValidationResponse, validateCoupon } from '@/lib/api/resources/coupons';
 import { getAccessToken } from '@/lib/api/server';
 import { ApiError } from '@/lib/api/types';
 
@@ -18,6 +19,24 @@ function toBenyError(error: unknown): BenyActionResult {
     }
 
     return { ok: false, message: 'Something went wrong. Please try again.' };
+}
+
+export async function validateBenyCouponAction(
+    code: string
+): Promise<{ ok: true; coupon: CouponValidationResponse } | { ok: false; message: string }> {
+    const token = await getAccessToken();
+    if (!token) return { ok: false, message: 'Not authenticated.' };
+
+    try {
+        const coupon = await validateCoupon({ code, has_beny: true }, token);
+
+        return { ok: true, coupon };
+    } catch (error) {
+        return {
+            ok: false,
+            message: error instanceof ApiError ? error.message : 'Could not apply this code. Please try again.'
+        };
+    }
 }
 
 export async function subscribeBenyAction(payload: BenySubscribePayload): Promise<BenyActionResult> {

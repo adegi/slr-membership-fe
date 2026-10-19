@@ -88,7 +88,13 @@ export async function activateBenyAction(id: string): Promise<ActionResult<BenyA
     try {
         const data = await activateBeny(id, token);
 
-        return { ok: true, data, message: 'BENY subscription activated.' };
+        return {
+            ok: true,
+            data,
+            message: data.requires_action
+                ? 'BENY activation requires 3D Secure payment from the member.'
+                : 'BENY subscription activated.'
+        };
     } catch (error) {
         return toActionError(error);
     }

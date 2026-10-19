@@ -3,16 +3,18 @@
 import { useEffect, useState, useTransition } from 'react';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { BENY_MONTHLY_PRICE, isBenyEligibleSubTier } from '@/constant/tiers';
 import { BENY_CATEGORIES } from '@/data/discounts';
 import { type BenyStatusValue, isBenyCancelled, isBenyWindingDown } from '@/lib/api/resources/beny';
+import { type CouponValidationResponse } from '@/lib/api/resources/coupons';
 import { AU_PHONE_MESSAGE, isAuPhone, toAuE164 } from '@/lib/au-phone';
 import { goldButtonStyle, inputClassName } from '@/lib/styles';
 import { cn } from '@/lib/utils';
 import type { MemberProfile, SubTierCode } from '@/types/member';
 
-import { cancelBenyAction, subscribeBenyAction } from '../beny-actions';
+import { cancelBenyAction, subscribeBenyAction, validateBenyCouponAction } from '../beny-actions';
 import {
     Check,
     Clock,
@@ -56,18 +58,41 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
     );
 }
 
+const couponDiscountFor = (coupon: CouponValidationResponse, basePrice: number): number => {
+    if (coupon.discount.amount_off_cents !== null) {
+        return Math.min(coupon.discount.amount_off_cents / 100, basePrice);
+    }
+    if (coupon.discount.percent_off !== null) {
+        return Math.min((basePrice * coupon.discount.percent_off) / 100, basePrice);
+    }
+
+    return 0;
+};
+
+const couponBadgeLabel = (coupon: CouponValidationResponse, basePrice: number): string => {
+    const amount = couponDiscountFor(coupon, basePrice);
+
+    return coupon.discount.percent_off !== null
+        ? `${coupon.discount.percent_off}% off (-$${amount.toFixed(2)})`
+        : `-$${amount.toFixed(2)}`;
+};
+
 export function BenySection({
     status: initialStatus,
     userProfile,
     subTier,
     cancelledAt = null,
-    expiresAt = null
+    expiresAt = null,
+    requiresAction = false,
+    paymentUrl = null
 }: {
     status: BenyStatusValue;
     userProfile?: MemberProfile | null;
     subTier?: SubTierCode | string | null;
     cancelledAt?: string | null;
     expiresAt?: string | null;
+    requiresAction?: boolean;
+    paymentUrl?: string | null;
 }) {
     const [status, setStatus] = useState<BenyStatusValue>(
         initialStatus === 'active' && cancelledAt ? 'pending_deactivation' : initialStatus
@@ -81,6 +106,11 @@ export function BenySection({
     const [isPending, startTransition] = useTransition();
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+
+    const [appliedCoupon, setAppliedCoupon] = useState<CouponValidationResponse | null>(null);
+    const [couponCode, setCouponCode] = useState('');
+    const [couponApplying, setCouponApplying] = useState(false);
+    const [couponError, setCouponError] = useState<string | null>(null);
 
     useEffect(() => {
         if (userProfile) {
@@ -96,12 +126,51 @@ export function BenySection({
     const isEligible = isBenyEligibleSubTier(effectiveSubTier);
     const canSubscribe = isEligible && (status === 'inactive' || isBenyCancelled(status));
 
+    const benyDiscount = appliedCoupon ? couponDiscountFor(appliedCoupon, BENY_MONTHLY_PRICE) : 0;
+    const effectivePrice = Math.max(0, BENY_MONTHLY_PRICE - benyDiscount);
+
     const [phoneError, setPhoneError] = useState<string | null>(null);
+
+    const handleApplyCoupon = async () => {
+        const code = couponCode.trim();
+        if (!code) {
+            setCouponError('Enter a promo code to apply.');
+
+            return;
+        }
+
+        setCouponApplying(true);
+        setCouponError(null);
+        try {
+            const res = await validateBenyCouponAction(code);
+            if (!res.ok) {
+                setCouponError(res.message);
+
+                return;
+            }
+            if (!res.coupon.applies_to_beny) {
+                setCouponError('This promo code is not valid for BENY.');
+
+                return;
+            }
+
+            setAppliedCoupon(res.coupon);
+            setCouponCode('');
+        } finally {
+            setCouponApplying(false);
+        }
+    };
+
+    const handleRemoveCoupon = () => {
+        setAppliedCoupon(null);
+        setCouponError(null);
+    };
 
     const handleSubmitAttempt = (e: React.FormEvent) => {
         e.preventDefault();
         if (!isAuPhone(form.phone)) {
             setPhoneError(AU_PHONE_MESSAGE);
+
             return;
         }
         setPhoneError(null);
@@ -123,10 +192,17 @@ export function BenySection({
     const handleConfirmSubscribe = () => {
         setConfirmOpen(false);
         startTransition(async () => {
-            const res = await subscribeBenyAction({ ...form, phone: toAuE164(form.phone) });
+            const res = await subscribeBenyAction({
+                ...form,
+                phone: toAuE164(form.phone),
+                promo_code: appliedCoupon ? appliedCoupon.code : undefined
+            });
             if (res.ok) {
                 setStatus(res.status);
                 setShowForm(false);
+                setAppliedCoupon(null);
+                setCouponCode('');
+                setCouponError(null);
                 setForm({
                     name: userProfile?.name ?? '',
                     email: userProfile?.email ?? '',
@@ -136,6 +212,7 @@ export function BenySection({
                 // Redirect to Stripe checkout to setup payment method
                 if (res.checkoutUrl) {
                     window.location.href = res.checkoutUrl;
+
                     return;
                 }
                 
@@ -236,30 +313,61 @@ export function BenySection({
 
                 {status === 'pending_payment' ? (
                     <div className='flex flex-wrap items-center justify-between gap-3'>
-                        <span className='inline-flex items-start gap-2 text-sm text-white/90'>
-                            <Clock className='text-slr-gold-label mt-0.5 size-4 shrink-0' />
-                            BENY setup incomplete. Please complete payment setup or cancel to try again later.
-                        </span>
-                        <div className='flex items-center gap-2'>
-                            <button
-                                type='button'
-                                onClick={handleCompleteSetup}
-                                disabled={isPending}
-                                className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-white/15 px-4 py-1.5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-60'
-                            >
-                                {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
-                                Complete Setup
-                            </button>
-                            <button
-                                type='button'
-                                onClick={() => setConfirmCancelOpen(true)}
-                                disabled={isPending}
-                                className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-red-500/30 px-4 py-1.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60'
-                            >
-                                {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
-                                Cancel
-                            </button>
-                        </div>
+                        {requiresAction && paymentUrl ? (
+                            <>
+                                <span className='inline-flex items-start gap-2 text-sm text-white/90'>
+                                    <Clock className='text-slr-gold-label mt-0.5 size-4 shrink-0' />
+                                    Your bank requires an extra verification step (3D Secure). Complete it to
+                                    activate your BENY add-on.
+                                </span>
+                                <div className='flex items-center gap-2'>
+                                    <a
+                                        href={paymentUrl}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-[#D4AF3759] px-4 py-1.5 text-sm font-semibold text-[#FFDC75] transition-colors hover:bg-[#D4AF371A]'
+                                    >
+                                        Complete Payment
+                                    </a>
+                                    <button
+                                        type='button'
+                                        onClick={() => setConfirmCancelOpen(true)}
+                                        disabled={isPending}
+                                        className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-red-500/30 px-4 py-1.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60'
+                                    >
+                                        {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
+                                        Cancel
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <span className='inline-flex items-start gap-2 text-sm text-white/90'>
+                                    <Clock className='text-slr-gold-label mt-0.5 size-4 shrink-0' />
+                                    BENY setup incomplete. Please complete payment setup or cancel to try again later.
+                                </span>
+                                <div className='flex items-center gap-2'>
+                                    <button
+                                        type='button'
+                                        onClick={handleCompleteSetup}
+                                        disabled={isPending}
+                                        className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-white/15 px-4 py-1.5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-60'
+                                    >
+                                        {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
+                                        Complete Setup
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={() => setConfirmCancelOpen(true)}
+                                        disabled={isPending}
+                                        className='inline-flex shrink-0 items-center gap-2 rounded-lg border border-red-500/30 px-4 py-1.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60'
+                                    >
+                                        {isPending ? <Loader2Icon className='size-4 animate-spin' /> : null}
+                                        Cancel
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 ) : null}
 
@@ -275,7 +383,8 @@ export function BenySection({
                         <form onSubmit={handleSubmitAttempt} className='space-y-3'>
                             <p className='text-slr-muted text-sm'>
                                 We&apos;ll use these details to activate your BENY account. The $
-                                {BENY_MONTHLY_PRICE.toFixed(2)}/month fee will be charged directly to your card on file.
+                                {effectivePrice.toFixed(2)}/month fee will be charged directly to your card on file
+                                {appliedCoupon ? ' (promo code applied)' : ''}.
                             </p>
                             {/* Name and email come from the account so billing and BENY stay on one identity. */}
                             <div className='grid gap-3 sm:grid-cols-2'>
@@ -307,6 +416,59 @@ export function BenySection({
                                     </p>
                                 )}
                             </div>
+                            <div>
+                                <label htmlFor='beny-promo' className='text-slr-muted text-xs font-semibold'>
+                                    Promo code (optional)
+                                </label>
+                                {appliedCoupon ? (
+                                    <div className='mt-1.5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5'>
+                                        <div className='flex flex-wrap items-center gap-2 text-sm'>
+                                            <span className='font-mono font-bold text-emerald-300 uppercase'>
+                                                {appliedCoupon.code}
+                                            </span>
+                                            <span className='text-emerald-200/90'>
+                                                {couponBadgeLabel(appliedCoupon, BENY_MONTHLY_PRICE)}
+                                            </span>
+                                        </div>
+                                        <button
+                                            type='button'
+                                            onClick={handleRemoveCoupon}
+                                            disabled={isPending}
+                                            className='text-xs font-semibold text-emerald-200 underline-offset-2 hover:underline disabled:opacity-50'>
+                                            Remove
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className='mt-1.5 flex gap-2'>
+                                        <Input
+                                            id='beny-promo'
+                                            type='text'
+                                            className={inputClassName}
+                                            placeholder='Enter promo code'
+                                            value={couponCode}
+                                            onChange={(e) => {
+                                                setCouponCode(e.target.value);
+                                                if (couponError) setCouponError(null);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    void handleApplyCoupon();
+                                                }
+                                            }}
+                                        />
+                                        <Button
+                                            type='button'
+                                            onClick={handleApplyCoupon}
+                                            disabled={couponApplying || isPending}
+                                            style={goldButtonStyle}
+                                            className='h-11 shrink-0 rounded-xl px-5 font-bold uppercase shadow-md transition-opacity hover:opacity-90 disabled:opacity-70 text-[#1a1408]'>
+                                            {couponApplying ? <Loader2Icon className='size-4 animate-spin' /> : 'Apply'}
+                                        </Button>
+                                    </div>
+                                )}
+                                {couponError ? <p className='mt-1 text-xs text-red-400'>{couponError}</p> : null}
+                            </div>
                             <div className='flex items-center gap-2'>
                                 <button
                                     type='submit'
@@ -318,7 +480,12 @@ export function BenySection({
                                 </button>
                                 <button
                                     type='button'
-                                    onClick={() => setShowForm(false)}
+                                    onClick={() => {
+                                        setShowForm(false);
+                                        setAppliedCoupon(null);
+                                        setCouponCode('');
+                                        setCouponError(null);
+                                    }}
                                     className='text-slr-dim px-3 py-2 text-sm hover:text-white'>
                                     Cancel
                                 </button>

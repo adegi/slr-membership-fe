@@ -7,12 +7,12 @@ import Link from 'next/link';
 import EmptyState from '@/components/common/empty-state';
 import GoldCtaButton from '@/components/common/gold-cta-button';
 import { type BenyActivationState, checkBenyActivation } from '../actions';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, CreditCard, Loader2 } from 'lucide-react';
 
 const MAX_TRIES = 5;
 const INTERVAL_MS = 2000;
 
-type Phase = 'polling' | 'pending_activation' | 'active' | 'unauthed';
+type Phase = 'polling' | 'pending_activation' | 'active' | 'unauthed' | 'requires_action';
 
 const SecondaryLink = ({ href, children }: { href: string; children: string }) => (
     <Link href={href} className='text-slr-dim text-sm transition-colors hover:text-white'>
@@ -22,7 +22,7 @@ const SecondaryLink = ({ href, children }: { href: string; children: string }) =
 
 export function BenyActivationStatus() {
     const [phase, setPhase] = useState<Phase>('polling');
-    const [, setDetail] = useState<BenyActivationState | null>(null);
+    const [detail, setDetail] = useState<BenyActivationState | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -35,6 +35,7 @@ export function BenyActivationStatus() {
             setDetail(res);
 
             if (!res.authed) return setPhase('unauthed');
+            if (res.requiresAction && res.paymentUrl) return setPhase('requires_action');
             if (res.benyStatus === 'active') return setPhase('active');
             if (res.benyStatus === 'pending_activation') return setPhase('pending_activation');
 
@@ -97,6 +98,26 @@ export function BenyActivationStatus() {
                             Sign in
                         </GoldCtaButton>
                         <SecondaryLink href='/'>Return home</SecondaryLink>
+                    </div>
+                }
+            />
+        );
+    }
+
+    if (phase === 'requires_action') {
+        return (
+            <EmptyState
+                icon={CreditCard}
+                title='One More Step — Verify Your Payment'
+                description='Your bank requires an extra verification step (3D Secure). Complete it to activate your BENY add-on.'
+                action={
+                    <div className='flex flex-col items-center gap-3'>
+                        {detail?.paymentUrl ? (
+                            <GoldCtaButton href={detail.paymentUrl} className='w-full max-w-xs'>
+                                Complete Payment
+                            </GoldCtaButton>
+                        ) : null}
+                        <SecondaryLink href='/member/membership'>Go to Membership</SecondaryLink>
                     </div>
                 }
             />

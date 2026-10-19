@@ -135,6 +135,7 @@ export interface BenyPendingItem {
     phone: string;
     status: string;
     created_at: string;
+    promo_code?: string | null;
 }
 
 export interface BenySubscriptionItem {
@@ -146,6 +147,7 @@ export interface BenySubscriptionItem {
     status: 'pending_activation' | 'active' | 'pending_deactivation' | 'cancelled' | 'canceled' | string;
     created_at: string;
     activated_at?: string | null;
+    promo_code?: string | null;
 
     // Live api-dev returns `expires_at` / `cancelled_at`; the earlier contract named them
     // `access_ends_at` / `deactivated_at`. Both are kept so either shape maps cleanly.
@@ -164,7 +166,12 @@ export interface BenyListResult {
 export interface BenyActivateResult {
     beny_subscription_id: string;
     status: string;
-    activated_at: string;
+    activated_at?: string | null;
+    stripe_subscription_id?: string | null;
+    /** True when the member's bank requires 3D Secure — payment_url must be completed first. */
+    requires_action?: boolean;
+    /** Stripe hosted invoice URL for the 3DS payment step. */
+    payment_url?: string | null;
 }
 
 export const getAdminDashboardMetrics = cache((token: string) => {

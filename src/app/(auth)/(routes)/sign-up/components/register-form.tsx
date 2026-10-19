@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { trackSignUp } from '@/lib/analytics';
 import { register } from '@/lib/api/resources/auth';
 import { signUpConsents } from '@/lib/api/resources/consents';
+import { resetCompletePayment } from '@/lib/api/resources/memberships';
 import { ApiError, apiErrorCode, apiErrorMessage } from '@/lib/api/types';
 import { type TierPricing, isSpinEligible, spinDiscountOf } from '@/lib/tier-pricing';
 import { cn } from '@/lib/utils';
@@ -144,6 +145,16 @@ export function RegisterForm({ pricing, className, ...props }: RegisterFormProps
         if (tier && subTier) {
             trackSignUp({ event: 'sign_up_tier_selected', tier, sub_tier: subTier });
         }
+
+        // Re-selecting a different tier invalidates any discount won/claimed earlier.
+        if (patch.sub_tier && data.sub_tier && patch.sub_tier !== data.sub_tier) {
+            setSpinPrize(null);
+            if (checkoutToken) {
+                void resetCompletePayment(checkoutToken, 'change-tier').catch(() => {});
+            }
+            toast.info('Discounts removed due to tier change. Please re-apply if applicable.');
+        }
+
         patchData(patch);
         createAccount(patch);
     };

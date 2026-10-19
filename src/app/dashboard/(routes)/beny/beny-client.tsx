@@ -129,8 +129,14 @@ export function BenyClient({
         startTransition(async () => {
             const res = await activateBenyAction(id);
             if (res.ok) {
-                setRows((prev) => prev.filter((r) => r.id !== id));
-                toast.success(res.message);
+                if (res.data.requires_action && res.data.payment_url) {
+                    window.open(res.data.payment_url, '_blank', 'noopener,noreferrer');
+                    toast.info('Bank requires 3D Secure verification. Payment link opened — refresh once the member completes it.');
+                    loadData(activeTab);
+                } else {
+                    setRows((prev) => prev.filter((r) => r.id !== id));
+                    toast.success(res.message);
+                }
             } else {
                 toast.error(res.code ? `${res.message} (${res.code})` : res.message);
             }

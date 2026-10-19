@@ -19,6 +19,8 @@ export interface ActivationState {
 export interface BenyActivationState {
     authed: boolean;
     benyStatus?: BenyStatusValue;
+    requiresAction?: boolean;
+    paymentUrl?: string | null;
 }
 
 export async function checkActivation(): Promise<ActivationState> {
@@ -54,7 +56,12 @@ export async function checkBenyActivation(): Promise<BenyActivationState> {
 
     try {
         const res = await getBenyStatus(token);
-        return { authed: true, benyStatus: res.beny_status };
+        return {
+            authed: true,
+            benyStatus: res.beny_status,
+            requiresAction: res.requires_action ?? false,
+            paymentUrl: res.payment_url ?? null
+        };
     } catch {
         return { authed: true, benyStatus: 'pending_activation' };
     }

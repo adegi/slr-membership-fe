@@ -12,10 +12,15 @@ export interface PortalSession {
     url: string;
 }
 
-export const createMembershipCheckout = (
-    token: string,
-    body: { sub_tier?: string; tier?: CheckoutTier; beny?: boolean }
-) => apiFetch<CheckoutSession>(API.memberships.checkout, { method: 'POST', token, body });
+export interface MembershipCheckoutPayload {
+    sub_tier?: string;
+    tier?: CheckoutTier;
+    promo_code?: string;
+    use_spin_discount?: boolean;
+}
+
+export const createMembershipCheckout = (token: string, body: MembershipCheckoutPayload) =>
+    apiFetch<CheckoutSession>(API.memberships.checkout, { method: 'POST', token, body });
 
 export const createCheckoutSession = (token: string, body: { tier: CheckoutTier; couponId?: string }) =>
     apiFetch<CheckoutSession>(API.stripe.checkout, { method: 'POST', token, body });

@@ -40,6 +40,8 @@ export default async function MembershipPage() {
     let benyStatus: BenyStatusValue = 'inactive';
     let benyCancelledAt: string | null = null;
     let benyExpiresAt: string | null = null;
+    let benyRequiresAction = false;
+    let benyPaymentUrl: string | null = null;
 
     let invoicesFailed = false;
 
@@ -63,6 +65,8 @@ export default async function MembershipPage() {
             benyStatus = y.value.beny_status ?? 'inactive';
             benyCancelledAt = y.value.cancelled_at ?? null;
             benyExpiresAt = y.value.expires_at ?? null;
+            benyRequiresAction = y.value.requires_action ?? false;
+            benyPaymentUrl = y.value.payment_url ?? null;
         } else handleApiAuthError(y.reason);
     }
 
@@ -124,6 +128,8 @@ export default async function MembershipPage() {
                         subTier={subTier}
                         cancelledAt={benyCancelledAt}
                         expiresAt={benyExpiresAt ?? billing?.next_renewal_at ?? null}
+                        requiresAction={benyRequiresAction}
+                        paymentUrl={benyPaymentUrl}
                     />
                 </>
             )}

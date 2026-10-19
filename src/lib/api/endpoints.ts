@@ -26,7 +26,12 @@ export const API = {
         stats: '/api/v1/memberships/stats',
         upgrade: '/api/v1/memberships/upgrade',
 
-        checkout: '/api/v1/membership/checkout'
+        checkout: '/api/v1/membership/checkout',
+        completePaymentState: '/api/v1/membership/complete-payment-state',
+        resetCompletePayment: '/api/v1/membership/reset-complete-payment'
+    },
+    coupons: {
+        validate: '/api/v1/coupons/validate'
     },
     admin: {
         members: '/api/v1/admin/members',
